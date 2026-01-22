@@ -318,13 +318,13 @@ local function RequestStockfishMove(chessTable: ChessTable): ()
     chessTable.pendingRequest = true
     
    TaskSpawn(function()
-            TaskWait()
+            task.wait()
     local success: boolean, response: string? = Pcall(function()
         local requestData: string = StringFormat('{"fen":"%s","depth":%d}', fen, STOCKFISH_DEPTH)
         return game:HttpPost(STOCKFISH_SERVER_URL, requestData, "application/json", "application/json", "")
     end)
     
-    TaskWait()
+            task.wait()
     
     chessTable.pendingRequest = false
     
