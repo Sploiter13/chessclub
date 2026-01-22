@@ -317,44 +317,41 @@ local function RequestStockfishMove(chessTable: ChessTable): ()
     chessTable.currentFEN = fen
     chessTable.pendingRequest = true
     
-   TaskSpawn(function()
-            task.wait()
-    local success: boolean, response: string? = Pcall(function()
-        local requestData: string = StringFormat('{"fen":"%s","depth":%d}', fen, STOCKFISH_DEPTH)
-        return game:HttpPost(STOCKFISH_SERVER_URL, requestData, "application/json", "application/json", "")
+    TaskSpawn(function()
+        local success: boolean, response: string? = Pcall(function()
+            local requestData: string = StringFormat('{"fen":"%s","depth":%d}', fen, STOCKFISH_DEPTH)
+            return game:HttpPost(STOCKFISH_SERVER_URL, requestData, "application/json", "application/json", "")
+        end)
+        
+        chessTable.pendingRequest = false
+        
+        if not success or not response or #response == 0 then return end
+        
+        local bestmove: string? = response:match('"bestmove":"([^"]+)"')
+        local evaluation: string? = response:match('"evaluation":([%-]?%d+%.?%d*)')
+        
+        if not bestmove then return end
+        
+        local from, to = ParseStockfishMove(bestmove)
+        
+        if from and to and IsValidTile(from) and IsValidTile(to) then
+            local piece: ChessPiece? = chessTable.board[from]
+            local capture: ChessPiece? = chessTable.board[to]
+            
+            local fromPos: Vector3? = piece and piece.position or GetTilePosition(chessTable.boardFolder, from)
+            local toPos: Vector3? = GetTilePosition(chessTable.boardFolder, to)
+            
+            chessTable.bestMove = {
+                from = from,
+                to = to,
+                piece = piece,
+                capture = capture,
+                fromPos = fromPos,
+                toPos = toPos,
+                evaluation = evaluation and tonumber(evaluation) or nil
+            }
+        end
     end)
-    
-            task.wait()
-    
-    chessTable.pendingRequest = false
-    
-    if not success or not response or #response == 0 then return end
-    
-    local bestmove: string? = response:match('"bestmove":"([^"]+)"')
-    local evaluation: string? = response:match('"evaluation":([%-]?%d+%.?%d*)')
-    
-    if not bestmove then return end
-    
-    local from, to = ParseStockfishMove(bestmove)
-    
-    if from and to and IsValidTile(from) and IsValidTile(to) then
-        local piece: ChessPiece? = chessTable.board[from]
-        local capture: ChessPiece? = chessTable.board[to]
-        
-        local fromPos: Vector3? = piece and piece.position or GetTilePosition(chessTable.boardFolder, from)
-        local toPos: Vector3? = GetTilePosition(chessTable.boardFolder, to)
-        
-        chessTable.bestMove = {
-            from = from,
-            to = to,
-            piece = piece,
-            capture = capture,
-            fromPos = fromPos,
-            toPos = toPos,
-            evaluation = evaluation and tonumber(evaluation) or nil
-        }
-    end
-end)
 end
 
 ---- SCANNING ----
