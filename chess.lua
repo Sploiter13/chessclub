@@ -90,6 +90,9 @@ local LastPrintTime: number = 0
 
 local TempFENBuffer: {string} = TableCreate(8)
 
+local RequestQueue: {{table: ChessTable, fen: string}} = {}
+local ProcessingRequest: boolean = false
+
 ---- helper functions ----
 
 local function ValidateParent(instance: Instance?): boolean
@@ -317,43 +320,65 @@ local function RequestStockfishMove(chessTable: ChessTable): ()
     chessTable.currentFEN = fen
     chessTable.pendingRequest = true
     
+    TableInsert(RequestQueue, {table = chessTable, fen = fen})
+end
+
+local function ProcessRequestQueue(): ()
+    if ProcessingRequest then return end
+    if #RequestQueue == 0 then return end
+    
+    ProcessingRequest = true
+    
     TaskSpawn(function()
-    task.wait(0.3)
-        local success: boolean, response: string? = Pcall(function()
-            local requestData: string = StringFormat('{"fen":"%s","depth":%d}', fen, STOCKFISH_DEPTH)
-            return game:HttpPost(STOCKFISH_SERVER_URL, requestData, "application/json", "application/json", "")
-        end)
-        
-        chessTable.pendingRequest = false
-            task.wait(0.5)
-        if not success or not response or #response == 0 then return end
-        
-        local bestmove: string? = response:match('"bestmove":"([^"]+)"')
-        local evaluation: string? = response:match('"evaluation":([%-]?%d+%.?%d*)')
-        
-        if not bestmove then return end
-        
-        local from, to = ParseStockfishMove(bestmove)
-        
-        if from and to and IsValidTile(from) and IsValidTile(to) then
-            local piece: ChessPiece? = chessTable.board[from]
-            local capture: ChessPiece? = chessTable.board[to]
+        while #RequestQueue > 0 do
+            local request = table.remove(RequestQueue, 1)
+            local chessTable = request.table
+            local fen = request.fen
             
-            local fromPos: Vector3? = piece and piece.position or GetTilePosition(chessTable.boardFolder, from)
-            local toPos: Vector3? = GetTilePosition(chessTable.boardFolder, to)
+            task.wait(0.1)
             
-            chessTable.bestMove = {
-                from = from,
-                to = to,
-                piece = piece,
-                capture = capture,
-                fromPos = fromPos,
-                toPos = toPos,
-                evaluation = evaluation and tonumber(evaluation) or nil
-            }
+            local success: boolean, response: string? = Pcall(function()
+                local requestData: string = StringFormat('{"fen":"%s","depth":%d}', fen, STOCKFISH_DEPTH)
+                return game:HttpPost(STOCKFISH_SERVER_URL, requestData, "application/json", "application/json", "")
+            end)
+            
+            task.wait(0.1)
+            
+            chessTable.pendingRequest = false
+            
+            if success and response and #response > 0 then
+                local bestmove: string? = response:match('"bestmove":"([^"]+)"')
+                local evaluation: string? = response:match('"evaluation":([%-]?%d+%.?%d*)')
+                
+                if bestmove then
+                    local from, to = ParseStockfishMove(bestmove)
+                    
+                    if from and to and IsValidTile(from) and IsValidTile(to) then
+                        local piece: ChessPiece? = chessTable.board[from]
+                        local capture: ChessPiece? = chessTable.board[to]
+                        
+                        local fromPos: Vector3? = piece and piece.position or GetTilePosition(chessTable.boardFolder, from)
+                        local toPos: Vector3? = GetTilePosition(chessTable.boardFolder, to)
+                        
+                        chessTable.bestMove = {
+                            from = from,
+                            to = to,
+                            piece = piece,
+                            capture = capture,
+                            fromPos = fromPos,
+                            toPos = toPos,
+                            evaluation = evaluation and tonumber(evaluation) or nil
+                        }
+                    end
+                end
+            end
+                        task.wait(0.2)
         end
+        
+        ProcessingRequest = false
     end)
 end
+
 
 ---- SCANNING ----
 
@@ -537,6 +562,7 @@ end
 RunService.PreLocal:Connect(function()
     Pcall(ScanChessTables)
     Pcall(RequestStockfishAnalysis)
+    Pcall(ProcessRequestQueue) 
 end)
 
 RunService.Render:Connect(function()
