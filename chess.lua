@@ -20,8 +20,8 @@ local TaskSpawn = task.spawn
 ---- constants ----
 local SCAN_INTERVAL: number = 0.5
 local MAX_TABLE_DISTANCE: number = 50
-local STOCKFISH_REQUEST_INTERVAL: number = 2
-local STOCKFISH_DEPTH: number = 8
+local STOCKFISH_REQUEST_INTERVAL: number = 0.3
+local STOCKFISH_DEPTH: number = 15
 
 local STOCKFISH_SERVER_URL: string = "http://127.0.0.1:5000/analyze"
 
@@ -89,9 +89,6 @@ local LastScanTime: number = 0
 local LastPrintTime: number = 0
 
 local TempFENBuffer: {string} = TableCreate(8)
-
-local RequestQueue: {{table: ChessTable, fen: string}} = {}
-local ProcessingRequest: boolean = false
 
 ---- helper functions ----
 
@@ -320,72 +317,42 @@ local function RequestStockfishMove(chessTable: ChessTable): ()
     chessTable.currentFEN = fen
     chessTable.pendingRequest = true
     
-    TableInsert(RequestQueue, {table = chessTable, fen = fen})
-end
-
-local function ProcessRequestQueue(): ()
-    if ProcessingRequest then return end
-    if #RequestQueue == 0 then return end
-    
-    ProcessingRequest = true
-    
     TaskSpawn(function()
-        while #RequestQueue > 0 do
-            local request = table.remove(RequestQueue, 1)
-            local chessTable = request.table
-            local fen = request.fen
-            
-            if not ValidateParent(chessTable.model) then
-                chessTable.pendingRequest = false
-                continue
-            end
-            task.wait(0.8)
-            
-            if not ValidateParent(chessTable.model) then
-                chessTable.pendingRequest = false
-                continue
-            end
-            
-            local success: boolean, response: string? = Pcall(function()
-                local requestData: string = StringFormat('{"fen":"%s","depth":%d}', fen, STOCKFISH_DEPTH)
-                return game:HttpPost(STOCKFISH_SERVER_URL, requestData, "application/json", "application/json", "")
-            end)
-            chessTable.pendingRequest = false
-            
-            if success and response and #response > 0 then
-                local bestmove: string? = response:match('"bestmove":"([^"]+)"')
-                local evaluation: string? = response:match('"evaluation":([%-]?%d+%.?%d*)')
-                
-                if bestmove then
-                    local from, to = ParseStockfishMove(bestmove)
-                    
-                    if from and to and IsValidTile(from) and IsValidTile(to) then
-                        local piece: ChessPiece? = chessTable.board[from]
-                        local capture: ChessPiece? = chessTable.board[to]
-                        
-                        local fromPos: Vector3? = piece and piece.position or GetTilePosition(chessTable.boardFolder, from)
-                        local toPos: Vector3? = GetTilePosition(chessTable.boardFolder, to)
-                        
-                        chessTable.bestMove = {
-                            from = from,
-                            to = to,
-                            piece = piece,
-                            capture = capture,
-                            fromPos = fromPos,
-                            toPos = toPos,
-                            evaluation = evaluation and tonumber(evaluation) or nil
-                        }
-                    end
-                end
-            end
-            task.wait(0.5)
-        end
+        local success: boolean, response: string? = Pcall(function()
+            local requestData: string = StringFormat('{"fen":"%s","depth":%d}', fen, STOCKFISH_DEPTH)
+            return game:HttpPost(STOCKFISH_SERVER_URL, requestData, "application/json", "application/json", "")
+        end)
         
-        ProcessingRequest = false
+        chessTable.pendingRequest = false
+        
+        if not success or not response or #response == 0 then return end
+        
+        local bestmove: string? = response:match('"bestmove":"([^"]+)"')
+        local evaluation: string? = response:match('"evaluation":([%-]?%d+%.?%d*)')
+        
+        if not bestmove then return end
+        
+        local from, to = ParseStockfishMove(bestmove)
+        
+        if from and to and IsValidTile(from) and IsValidTile(to) then
+            local piece: ChessPiece? = chessTable.board[from]
+            local capture: ChessPiece? = chessTable.board[to]
+            
+            local fromPos: Vector3? = piece and piece.position or GetTilePosition(chessTable.boardFolder, from)
+            local toPos: Vector3? = GetTilePosition(chessTable.boardFolder, to)
+            
+            chessTable.bestMove = {
+                from = from,
+                to = to,
+                piece = piece,
+                capture = capture,
+                fromPos = fromPos,
+                toPos = toPos,
+                evaluation = evaluation and tonumber(evaluation) or nil
+            }
+        end
     end)
 end
-
-
 
 ---- SCANNING ----
 
@@ -529,16 +496,6 @@ local function ScanChessTables(): ()
             end
         end
     end
-    local validQueue: {{table: ChessTable, fen: string}} = {}
-    for i = 1, #RequestQueue do
-        local request = RequestQueue[i]
-        if ValidateParent(request.table.model) and ActiveTables[request.table.model] then
-            TableInsert(validQueue, request)
-        else
-            request.table.pendingRequest = false
-        end
-    end
-    RequestQueue = validQueue
 end
 
 local function RequestStockfishAnalysis(): ()
@@ -579,7 +536,6 @@ end
 RunService.PreLocal:Connect(function()
     Pcall(ScanChessTables)
     Pcall(RequestStockfishAnalysis)
-    Pcall(ProcessRequestQueue) 
 end)
 
 RunService.Render:Connect(function()
