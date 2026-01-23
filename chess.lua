@@ -335,14 +335,28 @@ local function ProcessRequestQueue(): ()
             local chessTable = request.table
             local fen = request.fen
             
+            if not ValidateParent(chessTable.model) then
+                chessTable.pendingRequest = false
+                continue
+            end
+            
             task.wait(0.1)
+            
+            if not ValidateParent(chessTable.model) then
+                chessTable.pendingRequest = false
+                continue
+            end
             
             local success: boolean, response: string? = Pcall(function()
                 local requestData: string = StringFormat('{"fen":"%s","depth":%d}', fen, STOCKFISH_DEPTH)
                 return game:HttpPost(STOCKFISH_SERVER_URL, requestData, "application/json", "application/json", "")
             end)
+             task.wait(0.1)
             
-            task.wait(0.1)
+            if not ValidateParent(chessTable.model) then
+                chessTable.pendingRequest = false
+                break 
+            end
             
             chessTable.pendingRequest = false
             
@@ -372,7 +386,8 @@ local function ProcessRequestQueue(): ()
                     end
                 end
             end
-                        task.wait(0.2)
+            
+            task.wait(0.3)
         end
         
         ProcessingRequest = false
@@ -522,6 +537,16 @@ local function ScanChessTables(): ()
             end
         end
     end
+    local validQueue: {{table: ChessTable, fen: string}} = {}
+    for i = 1, #RequestQueue do
+        local request = RequestQueue[i]
+        if ValidateParent(request.table.model) and ActiveTables[request.table.model] then
+            TableInsert(validQueue, request)
+        else
+            request.table.pendingRequest = false
+        end
+    end
+    RequestQueue = validQueue
 end
 
 local function RequestStockfishAnalysis(): ()
