@@ -18,10 +18,10 @@ local OsClock = os.clock
 local TaskSpawn = task.spawn
 
 ---- constants ----
-local SCAN_INTERVAL: number = 0.5
+local SCAN_INTERVAL: number = 1
 local MAX_TABLE_DISTANCE: number = 50
-local STOCKFISH_REQUEST_INTERVAL: number = 0.3
-local STOCKFISH_DEPTH: number = 15
+local STOCKFISH_REQUEST_INTERVAL: number = 1
+local STOCKFISH_DEPTH: number = 8
 
 local STOCKFISH_SERVER_URL: string = "http://127.0.0.1:5000/analyze"
 
@@ -318,13 +318,14 @@ local function RequestStockfishMove(chessTable: ChessTable): ()
     chessTable.pendingRequest = true
     
     TaskSpawn(function()
+    task.wait(0.3)
         local success: boolean, response: string? = Pcall(function()
             local requestData: string = StringFormat('{"fen":"%s","depth":%d}', fen, STOCKFISH_DEPTH)
             return game:HttpPost(STOCKFISH_SERVER_URL, requestData, "application/json", "application/json", "")
         end)
         
         chessTable.pendingRequest = false
-        
+            task.wait(0.5)
         if not success or not response or #response == 0 then return end
         
         local bestmove: string? = response:match('"bestmove":"([^"]+)"')
