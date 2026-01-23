@@ -339,44 +339,17 @@ local function ProcessRequestQueue(): ()
                 chessTable.pendingRequest = false
                 continue
             end
-            
-            task.wait(0.5)
+            task.wait(0.8)
             
             if not ValidateParent(chessTable.model) then
                 chessTable.pendingRequest = false
                 continue
             end
             
-            local requestCompleted: boolean = false
-            local success: boolean = false
-            local response: string? = nil
-            
-            TaskSpawn(function()
-                success, response = Pcall(function()
-                    local requestData: string = StringFormat('{"fen":"%s","depth":%d}', fen, STOCKFISH_DEPTH)
-                    return game:HttpPost(STOCKFISH_SERVER_URL, requestData, "application/json", "application/json", "")
-                end)
-                requestCompleted = true
+            local success: boolean, response: string? = Pcall(function()
+                local requestData: string = StringFormat('{"fen":"%s","depth":%d}', fen, STOCKFISH_DEPTH)
+                return game:HttpPost(STOCKFISH_SERVER_URL, requestData, "application/json", "application/json", "")
             end)
-            
-            local waitTime: number = 0
-            while not requestCompleted and waitTime < 5 do
-                task.wait(0.5)
-                waitTime = waitTime + 0.5
-            end
-            
-            if not requestCompleted then
-                chessTable.pendingRequest = false
-                continue
-            end
-            
-            task.wait(0.5)
-            
-            if not ValidateParent(chessTable.model) then
-                chessTable.pendingRequest = false
-                break
-            end
-            
             chessTable.pendingRequest = false
             
             if success and response and #response > 0 then
@@ -387,8 +360,6 @@ local function ProcessRequestQueue(): ()
                     local from, to = ParseStockfishMove(bestmove)
                     
                     if from and to and IsValidTile(from) and IsValidTile(to) then
-                        task.wait(0.2)
-                        
                         local piece: ChessPiece? = chessTable.board[from]
                         local capture: ChessPiece? = chessTable.board[to]
                         
@@ -407,12 +378,13 @@ local function ProcessRequestQueue(): ()
                     end
                 end
             end
-            task.wait(1)
+            task.wait(0.5)
         end
         
         ProcessingRequest = false
     end)
 end
+
 
 
 ---- SCANNING ----
